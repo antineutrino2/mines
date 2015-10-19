@@ -1,0 +1,185 @@
+# Puts wells in a tri-mesh
+# @author Andrew Munoz, Colorado School of Mines
+# @version 10.03.2013
+
+from dtw import *
+from tputils import *
+from wtutils import *
+from imports import *
+from edu.mines.jtk.mesh import *
+
+pngDir = "/Users/amunoz/Home/pics/"
+
+def main(args):
+	goTest()
+
+def goTest():
+	goSamplingsTest()
+	mesh = makeTriMesh()
+	#mesh = makeTetMesh()
+	plot23(s2,s3,g,mesh)
+	plot12(s1,s2,f,mesh)
+
+
+###############################################################################
+# mesh methods 
+
+"""
+Returns a Triangular mesh with each node represented by well coordinates and 
+a property map that contains the well functions
+"""
+def makeTriMesh():
+	mesh = TriMesh()
+	fmap = mesh.getNodePropertyMap("f")
+	for i2 in range(ns):
+		x2c = x2[i2]
+		x3c = x3[i2]
+		fc  = f[i2]
+		node = TriMesh.Node(x2c,x3c)
+		mesh.addNode(node)
+		fmap.put(node,fc)
+	return mesh
+
+"""
+Returns a Tetrahedral mesh with each node represented by well coordinates and 
+a property map that contains the well functions
+"""
+def makeTetMesh():
+	mesh = TetMesh()
+	fmap = mesh.getNodePropertyMap("f")
+	for i2 in range(ns):
+		x2c = x2[i2]
+		x3c = x3[i2]
+		fc  = f[i2]
+		node = TriMesh.Node(x2c,x3c)
+		mesh.addNode(node)
+		fmap.put(node,fc)
+	return mesh
+
+###############################################################################
+# functions 
+
+def goSamplingsTest():
+	global f,x2,x3	
+	global n1,ns
+	global s2,s3,g
+	n1,ns = 101,12
+	f1,d1 = 0.0,1.0
+	f2,d2 = 0.0,0.01
+	f3,d3 = 0.0,0.01
+	n2,n3 = int((1.0-f2)/d2),int((1.0-f3)/d3)
+	s2,s3 = Sampling(n2,d2,f2),Sampling(n3,d3,f3)
+	# traces 
+	f = filltraces(n1,ns,f1,d1)
+	# coordinates 
+	x2 = randfloat(ns)
+	x3 = randfloat(ns)
+	g = zerofloat(n2,n3)
+
+###############################################################################
+# utils
+
+def filltraces(n1,n2,f1,d1):
+	f = zerofloat(n1,n2)
+	for i in range(n2):
+		f[i] = rampfloat(f1,d1,n1)
+	return f
+
+##############################################################################
+# plots
+
+# Options
+gray = ColorMap.GRAY
+jet = ColorMap.JET
+rwb = ColorMap.RED_WHITE_BLUE
+xrxu = PlotPanel.Orientation.X1RIGHT_X2UP
+xdxr = PlotPanel.Orientation.X1DOWN_X2RIGHT
+aplt = PlotPanel.AxesPlacement.LEFT_TOP
+inear = PixelsView.Interpolation.NEAREST
+eoc = PlotFrame.EXIT_ON_CLOSE
+
+def plot23(s1,s2,x,mesh=None,tris=True,polys=False,png=None):
+	pp = PlotPanel(xdxr)
+	#if png:
+	#  panel.setTitle(png)
+	tile = pp.getTile(0,0)
+	pv = pp.addPixels(s1,s2,x)
+	pv.setColorModel(gray)
+	pv.setInterpolation(inear)
+	tmvo = TriMeshView.Orientation.XDOWN_YRIGHT
+	if mesh:
+		color = Color.WHITE
+		color = Color.BLACK
+		tmv = TriMeshView(mesh)
+		tmv.setOrientation(tmvo)
+		tmv.setLineWidth(1)
+		tmv.setMarkWidth(6)
+		tmv.setTrisVisible(tris)
+		tmv.setPolysVisible(polys)
+		tmv.setMarkColor(color)
+		tmv.setTriColor(color)
+		tmv.setPolyColor(color)
+	tile.addTiledView(tmv)
+	pp.setLimits(s2.first,s3.first,s2.last,s3.last)	
+	frame = PlotFrame(pp)
+	frame.setDefaultCloseOperation(eoc)
+	frame.setFontSize(24)
+	frame.setSize(1000,720)
+	frame.setVisible(True)
+	if png: 
+		frame.paintToPng(360,6,pngDir+"/"+png+".png")
+
+def plot12(s1,s2,mesh,png=None):
+	pp = PlotPanel(xdxr)
+	#if png:
+	#  panel.setTitle(png)
+	tile = pp.getTile(0,0)
+	nn = mesh.countNodes()
+	nodes = mesh.getNodes()
+	fmap = mesh.gettNodePropertyMap("f")
+	a,x,y = [],[],[]
+	for i in range(nn):
+		node = nodes.next()
+		fc = fmap.get(node)
+		a.append(fc)
+		x.append(node.x)
+		y.append(node.y) 
+	d,td = zerodouble(nn),0
+	for i in range(1,nn):
+		xm = x[i-1]; ym = y[i-1]
+		xp = x[i  ]; yp = y[i  ]
+		d[i] = sqrt((xp-xm)*(xp-xm)+(yp-ym)*(yp-ym))
+		td += d[i]
+	dd = min(d)/10
+	nd = int(td/dd)
+	sd = Sampling(nd,dd,0.0)	
+	g = zerofloat(s1.count,nd)
+	xd = 0
+	for i in range(nn):
+		xi = int(xd/dd)
+		g[xi] = a[i]
+		xd += d[i]
+	# sort by increasing y
+	#a,x,y = izip(*sorted(izip(a,x,y),key=lambda x: x[2]))		
+	pv = pp.addPixels(s1,sd,g)
+	pv.setColorModel(jet)
+	pv.setInterpolation(inear)
+	tmvo = TriMeshView.Orientation.XDOWN_YRIGHT
+	pp.setHLabel("Distance")
+	pp.setVLabel("Time")
+	pp.setLimits(s2.first,s3.first,s2.last,s3.last)	
+	frame = PlotFrame(pp)
+	frame.setDefaultCloseOperation(eoc)
+	frame.setFontSize(24)
+	frame.setSize(1000,720)
+	frame.setVisible(True)
+	if png: 
+		frame.paintToPng(360,6,pngDir+"/"+png+".png")
+
+
+
+#------------------------------------------------------------------------------#
+class RunMain(Runnable):
+  def run(self):
+    main(sys.argv)
+SwingUtilities.invokeLater(RunMain())

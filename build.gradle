@@ -1,0 +1,19 @@
+apply plugin: 'java'
+
+defaultTasks 'compileJava'
+
+sourceSets {
+  main {
+    output.classesDir = 'build/cls'
+    output.resourcesDir = output.classesDir
+    java {
+      srcDir 'src'
+    }
+  }
+}
+
+dependencies {
+  compile fileTree('../../box/jtk/build/libs') // for edu_mines_jtk.jar
+  compile fileTree('../../box/jtk/libs') // jars provided with the Mines JTK
+  compile fileTree('../../box/ajm/bench/build/libs') // for bench.jar
+}

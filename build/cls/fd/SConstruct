@@ -1,0 +1,4 @@
+#!/usr/bin/env python
+jtk = '~/Home/box/jtk/build/jar/edu_mines_jtk.jar'
+env = Environment(JAVACLASSPATH=[jtk])
+env.Java(".",".",JAVAVERSION="1.6")

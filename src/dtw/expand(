@@ -1,0 +1,429 @@
+# Multiple 3D well ties
+# @author Andrew Munoz, Colorado School of Mines
+# @version 04.10.2013
+
+from dtw import *
+from tputils import *
+from wtutils import *
+from imports import *
+
+#_pres = '_rsch'
+_pres = 'paper_'
+
+#printWellLengths()
+# Params:
+fp = 35
+q  = 100
+# Image warping
+dr1   = 0.02 # 2D smoothness vertically 
+dr2   = 0.50 # 2D smoothness horizontally
+dr3   = 0.50 # 3D smoothness horizontally
+rmin1,rmax1 = -0.06,0.12 # vertical constraint # use -0.06,0.12,0.02,0.5,-1.0,1.0
+rmin2,rmax2 = -1.00,1.00 # horizontal constraint (s/km)
+rmin3,rmax3 = -1.00,1.00 # horizontal constraint (s/km)
+smin,smax = -0.20,0.20 # min and max time shifts for 2D/3D warping
+print 'dr1  = ',dr1,  'dr2  = ',dr2,  'dr3  = ',dr3
+print 'rmin1=', rmin1,'rmin2=', rmin2,'rmin3=', rmin3
+print 'rmax1= ',rmax1,'rmax2= ',rmax2,'rmax3= ',rmax3
+
+#3D interp	
+vinterps3=False
+dinterps3=False
+sinterps3=False
+#2D interp
+vinterps2=False
+dinterps2=False
+sinterps2=False
+#plots
+singleplots=True
+
+def main(args):
+  #printWellLengths()
+  goMultiWell3D()
+
+def goMultiWell3D():
+  # 1. Get the 3D seismic image
+  global s1,s2,s3
+  global smin,smax
+  global wells,ids
+  cut1=[0.10,1.25];cut2=[3.40,6.65];cut3=[0.6,2.7];
+  #f,s3,s2,s1 = getImage(normalize=True,smooth=True,cut1=cut1,cut2=cut2,cut3=cut3)
+  f,s3,s2,s1 = getImage(normalize=True,cut1=cut1,cut2=cut2,cut3=cut3)
+  #f,s3,s2,s1 = getImage(normalize=True)
+  dt = s1.delta
+  
+  # 2. Get the wells, coords, and tops
+  #wells = [0,1,2,3,4,6,7,8,9,10,11,12,13,15,16,17]
+  #wells = [0,1,  3,4,      9,10,11,12,   15,16   ] #>=100 #15
+  #wells = [0,3,4,9,15,16,12,17,2,11] #seis6
+  #wells = [3,15,16,11,4]; nm="1"; #seis1
+  #phases = [71]*len(wells) #nm="1"
+  #wells = [3,15,16,11,10]; nm="2"; #seis2
+  #phases = [100]*len(wells) #15
+  #wells = [3,12,16,15,4,11]; nm="3" # 3D
+  #phases = [30]*len(wells) #nm=3
+  wells = [3,12,16,15,7,4,2,11]; nm="7" # 3D take out 0,1
+  phases = [44]*len(wells) #nm=6,7
+  wells = sortWells(wells)
+  tops,fmsp,datums = getWellTops(wells)
+  ail,vl,dl,gl,sz,x2w,x3w,ids = getMultipleLogs(wells,datums,id=True)
+  
+  # 3. Get the synthetics
+  ssy,sy,tzl,ztl,sztl = getSeismograms(sz,vl,dl,q,phase=phases)
+  printCorrelations(f,sy,ssy,x2w,x3w,'initial')
+  
+  # 3. Apply single warp to all wells
+  u,h,sh,tz,vint,zt,szt,pv = warpIndividually(\
+  			f,ssy,sy,sz,x2w,x3w,tzl,vl,smin,smax,rmin1,rmax1,dr1,wells)#,ph2=True)
+  
+  print '---3D warp refinement---'
+  # 7. Interpolate and warp the synthetics
+  bgs = 2.0
+  tensors = makeTensors(f,p2=1.0)
+  #plot3(f,"3D Tensors",tensors=tensors,paper='3d tensors',plots=True)
+  
+  print 'Interpolate 1D synthetics...'
+  kind = "synimg"+nm+"_"+str(len(sy))
+  sw = Stopwatch()
+  sw.start()
+  gi = interpolateSynthetics3(sy,ssy,x2w,x3w,bgs,kind=kind,ts=tensors)
+  sw.stop()
+  pts = [x3w,x2w]
+  #plot3P(s1,s2,s3,gi,"synthetic image",paper='isynimg')
+  print 'interpolation took '+(getTimePrint(sw.time()))
+  
+  print 'f3 = ',len(f) ,' f2 = ',len(f[0]) ,' f1 = ',len(f[0][0])
+  print 'g3 = ',len(gi),' g2 = ',len(gi[0]),' g1 = ',len(gi[0][0])
+  
+  h3d,u3d,hn,shn,tzn,vintn,ztn,sztn,pvn,name = warpAllin3D(gi,f,x2w,x3w,sy,ssy,vl,tzl,sz,kind)#,new=True)
+  return 
+  readAndMakePlots(nm,f,sy,ssy,x2w,x3w,bgs,gi,h3d,u3d,hn,shn,tzn,vintn,pvn,name)
+  return
+  
+  # Plotting
+  lconmw = [ail,vl,dl,sz,tzl,tzn,vintn,sy,ssy,hn,shn,pvn]
+  #lconsw = [ail,vl,dl,sz,tzl,tz,vint,sy,ssy,h,sh,pv]
+  #line1
+  #wellline1 = [0,1,7,2]; 
+  #getProfile(wells,wellline1,lconmw,f,gi,h3d,u3d,edg=0.2,wln="1")
+  #line2
+  wellline1 = [3,16,15,7,4,11]; 
+  wellline2 = [3,16,15,7,2]; 
+  #getProfile(wells,wellline2,lconmw,f,gi,h3d,u3d,hzs=hzs,edg=0.1)#,plot1Dtie=[h,sh,tz],wln="2")
+  #line3
+  wellline3 = [3,12,4,11];
+  #getProfile(wells,wellline3,lconmw,f,gi,h3d,u3d,edg=0.1,wln="3")
+  
+  if singleplots:
+    for i in wells:
+      #goSingleWellPlots(f,x2w,x3w,lconsw,well=i,swt=True)
+      goSingleWellPlots(f,x2w,x3w,lconmw,well=i)
+  
+  if vinterps3:
+    print 'Interpolate updated velocities...'
+    vtensors = makeTensors(f,p0=0.0,p1=1.50,p2=1.50)
+    bgs = 1.0
+    sw.restart()
+    vname = "nvel"+nm
+    veln = interpolateLogs3(vintn,shn,x2w,x3w,tzn,bgs,\
+    												 kind=vname+"_"+name,ts=vtensors) 
+    vname = "svel"+nm
+    vels = interpolateLogs3(vl,ssy,x2w,x3w,tzn,bgs,\
+    												 kind=vname+"_"+name,ts=vtensors)
+    vname = "ivel"+nm
+    veli = interpolateLogs3(vl,ssy,x2w,x3w,tzl,bgs,\
+    												 kind=vname+"_"+name,ts=vtensors)
+    sw.stop()
+    v21 = getImageAlongCurve(veln,x2s,x3s)
+    v22 = getImageAlongCurve(vels,x2s,x3s)
+    v23 = getImageAlongCurve(veli,x2s,x3s)
+    plotSlice(sn,s1,v21,title='3D new velocity',cmap=jet,cbar="Velocity (km/s)")
+    plotSlice(sn,s1,v22,title='3D shifted velocity',cmap=jet,cbar="Velocity (km/s)")
+    plotSlice(sn,s1,v23,title='3D inital velocity',cmap=jet,cbar="Velocity (km/s)")
+    print 'interpolation took '+(getTimePrint(sw.time()))
+   
+  if sinterps3:
+    print 'Interpolate updated seismograms...'
+    bgs = 2.0
+    sw.restart()
+    sname = "nsynimg"+nm
+    gn = interpolateSynthetics3(hn,shn,x2w,x3w,bgs,\
+    												 kind=sname+"_"+name,ts=tensors)
+    sw.stop()
+    plot3(gn,"updated synthetic image",logs=[hn,shn,x2w,x3w],plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipnsynimg')
+    gi2 = getImageAlongCurve(gi,x2s,x3s)
+    h2n = getImageAlongCurve(h3d,x2s,x3s)
+    gn2 = getImageAlongCurve(gn,x2s,x3s)
+    plotSlice(sn,s1,gn2,title='3D tied synthetic image')#,paper ='2dpnsynimg')
+    plotSlice(sn,s1,h2n,title='3D warped synthetic image',paper ='2dpwarpsynimg')
+    plotSlice(sn,s1,gi2,title='3D init synthetic image',paper ='2dpinitsynimg')
+    print 'interpolation took '+(getTimePrint(sw.time()))
+  
+  if dinterps3:
+    print 'Interpolate updated time-depths...'
+    bgs = 0.5
+    sw.restart()
+    dname = "ntz"+nm
+    sd,tz3n = computetz3(dname+"_"+name,tzn,sz,x2w,x3w,bgs)
+    plot3(tz3n,"time-depths",sd=sd,cmap=jet,paper ='iptz',plots=True)
+    sw.stop()
+    tz3n = smooth23(tz3n)
+    plot3(tz3n,"time-depths smoothed",sd=sd,cmap=jet,paper ='iptz',plots=True)
+    print 'interpolation took '+(getTimePrint(sw.time()))
+    print 'Depth-convert 3D seismic image...'
+    gz = imageTimeToDepth3(f,tz3n)
+    plot3(gz,"depth-converted seismic image",sd=sd,paper ='ipzimg',plots=True)
+    gz2 = getImageAlongCurve(gz,x2s,x3s,sd=sd)
+    tlim = [sn.first,s1.first,sn.last,max(tz3n)]
+    dlim = [sn.first,sd.delta*getFirstZ(s1.first,tz3n),sn.last,sd.last]
+    plotSlice(sn,sd,gz2,lims=dlim,title='depth-converted image',vlabel="Depth (km)",paper ='2dpnzimg')
+    plotSlice(sn,s1,cf,lims=tlim,title='seismic image',paper ='2dpimg')
+    plot3(f,"seismic image",paper ='iptimg',plots=True)
+    plot3(gz,"depth-converted seismic image",sd=sd,paper ='ipzimg',plots=True)
+  return	
+  if vinterps2 or dinterps2 or sinterps2:
+    lcon = [ail,vl,dl,sz,tzl,tzn,vintn,sy,ssy,hn,shn,vint,tz]
+    ail2,vl2,dl2,sz2,tzl2,tzn2,vintn2,sy2,ssy2,hn2,shn2,vint2,tz2=reduceWellList(wells,wellline1,lcon)
+  if vinterps2:
+    print 'Interpolate velocities in 2D...'
+    bgs = 1.5
+    cv = [2.74,5.5]
+    vtensors = makeTensors(cf,p1=1.0)
+    vlmg = interpolateLogs2(vl2,sz2,sn,x2wn,tzl2,bgs,ts=vtensors)
+    vumg = interpolateLogs2(vintn2,sz2,sn,x2wn,tzn2,bgs,ts=vtensors)
+    vsmg = interpolateLogs2(vl2,sz2,sn,x2wn,tzn2,bgs,ts=vtensors)
+    vimg = interpolateLogs2(vint2,sz2,sn,x2wn,tz2,bgs,ts=vtensors)
+    vtmg = interpolateLogs2(vl2,sz2,sn,x2wn,tz2,bgs,ts=vtensors)
+    plotSlice(sn,s1,vlmg,cmap=jet,cbar='Velocity (km/s)',title='init velocities',clips=cv)
+    plotSlice(sn,s1,vsmg,cmap=jet,cbar='Velocity (km/s)',title='shifted velocities',clips=cv)
+    plotSlice(sn,s1,vumg,cmap=jet,cbar='Velocity (km/s)',title='tied velocities',clips=cv)
+    plotSlice(sn,s1,vimg,cmap=jet,cbar='Velocity (km/s)',title='indiv warp velocities',clips=cv)
+    plotSlice(sn,s1,vtmg,cmap=jet,cbar='Velocity (km/s)',title='indiv shift velocities',clips=cv)
+    plotSlice(sn,s1,cf,v=vlmg,title='init velocities',clips2=cv,paper='2dpvelinit')
+    plotSlice(sn,s1,cf,v=vsmg,title='shifted velocities',clips2=cv,paper='2dpvelshift')
+    plotSlice(sn,s1,cf,v=vumg,title='tied velocities',clips2=cv,paper='2dpvelwarp')
+    plotSlice(sn,s1,cf,v=vimg,title='indiv warp velocities',clips2=cv,paper='2dpvel1Dwarp')
+    plotSlice(sn,s1,cf,v=vtmg,title='indiv shift velocities',clips2=cv,paper='2dpvel1Dshift')
+  if sinterps2:
+    print 'Interpolate synthetics in 2D...'
+    bgs = 2.0
+    stensors = makeTensors(cf,p1=1.0)
+    #gi2 = getImageAlongCurve(gi,x2s,x3s)
+    #h2n = getImageAlongCurve(h3d,x2s,x3s)
+    #gn2 = getImageAlongCurve(gn,x2s,x3s)
+    gi2 = interpolateSynthetics2(sy2,ssy2,sn,x2wn,bgs,ts=stensors)
+    gn2 = interpolateSynthetics2(hn2,shn2,sn,x2wn,bgs,ts=stensors)
+    plotSlice(sn,s1,gn2,title='tied synthetic image')#,paper ='2dpnsynimg')
+    #plotSlice(sn,s1,h2n,title='warped synthetic image',paper ='2dpwarpsynimg')
+    plotSlice(sn,s1,gi2,title='init synthetic image',paper ='2dpinitsynimg')
+    #plot2DLogs(s1,sn,cf,shn2,hn2,x2wn,title='tied synthetics',paper ='2dpwarpsyn')
+    #plot2DLogs(s1,sn,cf,ssy2,sy2,x2wn,title='init synthetics',paper ='2dpinitsyn')
+
+
+def warpAllin3D(f,g,x2w,x3w,sy,ssy,vl,tzl,sz,kind,new=None):
+  nw = len(vl)
+  dt = s1.delta
+  f1 = s1.first
+  n1 = s1.count; n2 = s2.count; n3 = s3.count
+  name = str(nw)+"_"+str(rmin1)+"_"+str(rmin2)+"_"+str(rmin3)+"_"+str(rmax1)+"_"+\
+  			 str(rmax2)+"_"+str(rmax3)+"_"+str(dr1)+"_"+str(dr2)+"_"+str(dr3)+"_"+\
+  			 str(smin)+"_"+str(smax)+"_"+str(n3)+"_"+str(n2)+"_"+str(n1)
+  tpDir = getTpDir()
+  fname = tpDir+"csm/warps/"+kind+"_3dwarpu_"+name+".dat"
+  #dwc = DynamicWarpingWT(smin,smax,s1,s2,s3)
+  dwo = DynamicWarpingWTM(g,f,infl(smin/dt),ince(smax/dt))
+  if path.exists(fname) and path.isfile(fname) and not new:
+    print "u exists..."
+    u = zerofloat(n1,n2,n3)
+    readImage(u,fname)
+  else:
+    print "find u..."
+    #dwc.setStrainLimits(rmin1,rmax1,rmin2,rmax2,rmin3,rmax3)
+    #dwc.setSmoothing(dr1,dr2,dr3)
+    #u = dwc.findShifts(s1,s1,f,g)
+    u = dwo.findShifts(rmin1,rmax1,dr1,rmin2,rmax2,dr2,rmin3,rmax3,dr3)
+    writeImage(u,fname)
+  #h = dwc.applyShifts(f,u)
+  #h,s = dwo.applyShifts(u)
+  h = dwo.applyShiftsF(u)
+  plotSlice(s2,s1,f[50],title="f")
+  plotSlice(s2,s1,g[50],title="g")
+  plotSlice(s2,s1,h[50],title="h")
+  plotSlice(s2,s1,u[50],cmap=jet,cbar="u(tau)")
+  wh,wsh,tz,vint,zt,szt,pv=[],[],[],[],[],[],[]
+  rsum = 0
+  u = mul(dt,u)
+  for i in range(nw):
+    x2i = inro((x2w[i]-s2.first)/s2.delta)
+    x3i = inro((x3w[i]-s3.first)/s3.delta)
+    h2,u2 = h[x3i][x2i],u[x3i][x2i]
+    h0,wsh0 = getNewSyntheticSampling(h2,u2,ssy[i],sy[i])
+    #h0,fha = dwc.getWarpedSyntheticSeismogram(ssy[i],u2,sy[i])
+    #wsh0  = Sampling(len(h0),dt,fha[0]) 
+    tz0,vint0,pv0 = updateTDandVelocity(sz[i],u2,add(tzl[i],s1.first))
+    zt0,szt0 = getzt(sz[i],tz0)
+    wh.append(h0); wsh.append(wsh0); pv.append(pv0);
+    szt.append(szt0);
+    tz.append(tz0); vint.append(vint0); zt.append(zt0)
+    trc = f[x3i][x2i]
+    grc = g[x3i][x2i]
+    wn = str(wells[i])
+    plotCurve(sy[i],ssy[i],h2,s1,title='init syn syn img'+wn)
+    plotCurve(trc,s1,sy[i],ssy[i],title='init syn '+wn)
+    plotCurve(grc,s1,h0,wsh0,title='tied syn cut'+wn)
+    plotCurve(grc,s1,h2,s1,title='tied syn img '+str(wells[i]))
+    plotCurve(pv0,sz[i],title='% v change '+wn,d="z")
+    #pred+=printError(s1,wsh[i],h0,f[x3i][x2i]); szt.append(szt0)
+    #r = correlation(h0,trc,wsh0,s1)
+    #rsum += r
+    #print 'R = ',r,'for well ',wn
+  print 'Average R =',rsum/nw
+  return h,u,wh,wsh,tz,vint,zt,szt,pv,name
+
+def getNewSyntheticSampling(h,u,ssy,sy=None):
+  ni = ssy.count
+  fi = ssy.first
+  li = ssy.last
+  n1 = s1.count
+  d1 = s1.delta
+  f1 = s1.first
+  # find beginning and end of the synthetic seismogram
+  fii = inro((fi-f1)/d1)
+  lii = inro((li-f1)/d1)
+  u = add(floats(s1.getValues()),u)
+  fo = u[fii]+fi
+  lo = u[lii]+fi
+  fio = inro((fo-f1)/d1)
+  no = inro((lo-fo)/d1)
+  if no+fio>n1: no -= no+fio-n1
+  sh = Sampling(no,d1,fo)
+  ho = copy(no,fio,h)
+  plotCurve(h,s1,ho,sh,title='b4 and after')
+  plotCurve(ho,sh,title='syn after')
+  if sy: plotCurve(sy,ssy,title='syn b4')
+  #plotCurve(u,s1,title='shifts')
+  return ho,sh
+
+def getProfile(wells,wellline,lcon,f,gi,h3d,u3d,edg=0.2,hzs=None,plot3d=None,plot1Dtie=None,wln="1"):
+	imgh = WTutils().getSlice(290,f)
+	tops,fmsp,datums = getWellTops(wells)
+	ail,vl,dl,gl,sz,x2w,x3w,ids  = getMultipleLogs(wells,datums)
+	x2wl,x3wl = getMultipleLogs(wellline,datums,conly=True)
+	x2s,x3s,sn,x2wn = getCurveThruWells(x2wl,x3wl,s2.delta,edg=edg)
+	plotCoordSlice(s2,s3,x2s,x3s,x2w,x3w,imgh,paper ="seismic coord hslice"+wln)
+	ail2,vl2,dl2,sz2,tzl2,tzn2,vintn2,sy2,ssy2,hn2,shn2,pv2 = reduceWellList(wells,wellline,lcon)
+	cf = getImageAlongCurve(f,x2s,x3s)
+	gi2 = getImageAlongCurve(gi,x2s,x3s)
+	h2n = getImageAlongCurve(h3d,x2s,x3s)
+	u2n = getImageAlongCurve(u3d,x2s,x3s)
+	ws = ' '+str(wellline)
+	plotSlice(sn,s1,gi2,title='3D inital image'+ws,paper ='2dpnsynimg'+wln)
+	plotSlice(sn,s1,h2n,title='3D warped synthetic image'+ws,paper ='2dpwarpsynimg'+wln)
+	#plotSlice(sn,s1,u2n,title='3D vertical time shifts'+ws,cbar='time shifts (s)',cmap=jet)
+	plot2DLogs(s1,sn,cf,shn2,hn2,x2wn,title='tied synthetics'+ws,paper ='2dpwarpsyn'+wln)
+	plot2DLogs(s1,sn,cf,ssy2,sy2,x2wn,title='init synthetics'+ws,paper ='2dpinitsyn'+wln)
+	plot2DLogs(s1,sn,cf,shn2,hn2,x2wn,title='tied synthetics'+ws,paper ='2dpwarpsyncb'+wln,cbar="Amplitude")
+	if hzs: 
+		tops,fmsp = hzs
+		gh2 = get2DHorizons(x2s,x3s)
+		plot2DLogs(s1,sn,cf,shn2,hn2,x2wn,gh=gh2,tops=tops,fmsp=fmsp,tz=tzn2,sz=sz2)#,paper='2dpwarpsynhz'+wln)
+	tzl2 = add(tzl2,s1.first)
+	votli = makeVot(sz2,vl2,tzl2,ssy2)
+	plot2DLogs(s1,sn,cf,ssy2,votli,x2wn,title='vel init',cbar='Velocity (km/s)',\
+									lcmap=jet,lclips=[2.75,5.5],paper='2dpveliseis'+wln,velc=True)
+	votl = makeVot(sz2,vl2,tzn2,shn2)
+	plot2DLogs(s1,sn,cf,shn2,votl,x2wn,title='vel shift3',cbar='Velocity (km/s)',\
+									lcmap=jet,lclips=[2.75,5.5],paper='2dpvelseis'+wln,velc=True)
+	if plot1Dtie:
+		h,sh,tzi = plot1Dtie
+		h2i,sh2i,tzi2 = reduceWellList(wells,wellline,[h,sh,tzi])
+		tzi2 = add(tzi2,s1.first)
+		plot2DLogs(s1,sn,cf,sh2i,h2i,x2wn,title='indv warp synthetics'+ws,paper='2dp1dwarpsyn'+wln)
+		plot2DLogs(s1,sn,cf,sh2i,h2i,x2wn,title='indv warp synthetics'+ws,paper='2dp1dwarpsyncb'+wln,cbar="Amplitude")
+		votl1 = makeVot(sz2,vl2,tzi2,sh2i)
+		plot2DLogs(s1,sn,cf,sh2i,votl1,x2wn,title='vel shift1',cbar='Velocity (km/s)',\
+									lcmap=jet,lclips=[2.75,5.5],paper='2dpvel1Dseis'+wln,velc=True)
+	if plot3d:
+		sy,ssy,hn,shn = lcon[7],lcon[8],lcon[9],lcon[10]
+		plot3(f,"untied synthetics",logs=[sy,ssy,x2w,x3w],\
+					plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipinitsyn')
+		plot3(gi,"initial synthetic image",logs=[sy,ssy,x2w,x3w],\
+					plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipinitimg')
+		plot3(h3d,"warped synthetic image",logs=[hn,shn,x2w,x3w],\
+					plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipwarpimg')
+		plot3(f,"warped synthetics",logs=[hn,shn,x2w,x3w],\
+					plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipwarpsyn')
+		if plot1Dtie:	
+			plot3(f,"1D tie synthetics",logs=[h,sh,x2w,x3w],\
+						plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipindwarpsyn')
+	return x2s,x3s
+
+def goSingleWellPlots(f,x2w,x3w,lcon,well,hzs=None,swt=None):
+	mt = "mwt"
+	if swt:
+		mt = "swt"
+	iw = wells.index(well)
+	wid = str(well)
+	ttitle = "UWI "+str(ids[iw])
+	#ttitle = mt+wid
+	ail,vl,dl,sz,tzl,tzn,vln,sy,ssy,hn,shn,pvn = lcon
+	traces = getTraces(f,x2w[iw],x3w[iw],tonly=True)
+	tr = traces[0]
+	plotCurveHorz2(tr,s1,sy[iw],ssy[iw],tr,s1,hn[iw],shn[iw],paper="synspanel"+mt+wid,title=ttitle)
+	plotVelPanel(sz[iw],tzl[iw],vl[iw],pvn[iw],sy12=tzn[iw],sy22=vln[iw],hlim=[-15,15],paper="veltzpanel"+"mt"+wid,title=ttitle)
+	#if hzs:
+	#	x2wl,x3wl  = getMultipleLogs(wellline2,datums,conly=True)
+	#	x2s,x3s,sn,x2wn = getCurveThruWells(x2wl,x3wl,s2.delta,edg=0.1)
+	#	cf = getImageAlongCurve(f,x2s,x3s)
+		
+def readAndMakePlots(nm,f,sy,ssy,x2w,x3w,bgs,gi,h3d,u3d,hn,shn,tzn,vintn,pvn,name):
+  skind = "nsynimg"+nm
+  sname = skind+"_"+name+"_"+str(bgs)+"_"+str(n1)+"_"+str(n2)+"_"+str(n3)+".dat"
+  dkind = "ntz"+nm
+  dname = dkind+"_"+name+"_"+str(bgs)+"_"+str(n1)+"_"+str(n2)+"_"+str(n3)
+  # vel interps
+  #vkinds = ["nvel"+nm,"svel"+nm,"ivel"+nm]
+  #vname = vkind+"_"+name+"_"+str(bgs)+".dat"
+  fpath = getTpDir()+"csm/interps/"
+  sfname = fpath+sname
+  dfname = fpath+dname
+  gn = like3f(gi)
+  gz,tz3,sd = getDepthImage(f,dfname)
+  gn = readImage(gn,sfpath)
+  plot3(f,"untied synthetics",logs=[sy,ssy,x2w,x3w],\
+  		  plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipinitsyn')
+  plot3(gi,"initial synthetic image",logs=[sy,ssy,x2w,x3w],\
+  			plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipinitimg')
+  plot3(h3d,"warped synthetic image",logs=[hn,shn,x2w,x3w],\
+  			plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipwarpimg')
+  plot3(f,"warped synthetics",logs=[hn,shn,x2w,x3w],\
+  			plots=True,lmap=[x2w,x3w,x2s,x3s],paper ='ipwarpsyn')
+  plot3P(s1,s2,s3,f,"seismic image",paper='3Pf')
+  plot3P(s1,s2,s3,gz,"depth image",paper='3Pgz')
+  plot3P(s1,s2,s3,gi,"synthetic image",paper='3Pgi')
+  plot3P(s1,s2,s3,gn,"new synthetic image",paper='3Pgn')
+  plot3P(s1,s2,s3,h3d,"warped synthetic image",paper='3Ph')
+
+    
+def getDepthImage(f,dfname):
+  sfname = dfname+"_samplings.dat"
+  si = zerodouble(3)
+  ais = ArrayInputStream(sfname)
+  ais.readDoubles(si)
+  ais.close()
+  sd = Sampling(int(si[0]),si[1],si[2])
+  tz3 = zerofloat(sd.count,n2,n3)
+  tz3n = smooth23(tz3n)
+  gz = imageTimeToDepth3(f,tz3n)
+  return gz,tz3n,sd
+
+
+
+
+#------------------------------------------------------------------------------#
+
+class RunMain(Runnable):
+  def run(self):
+    main(sys.argv)
+SwingUtilities.invokeLater(RunMain())
+

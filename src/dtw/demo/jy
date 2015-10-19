@@ -1,0 +1,45 @@
+#!/bin/sh
+#############################################################################
+# Jython script for Mac OS X
+
+# Edit these variables to point to relevant directories
+export JAVA_VERSION=1.6.0 # on Mac OS, which Java version?
+export MINES_JTK_HOME=jtk
+export JYTHON_HOME=$HOME/Home/bin/jython2.5.2
+
+# Where will Java look for classes?
+export CLASSPATH=\
+$IDH_HOME/bench/build/jar/idh.jar:\
+$AJM_HOME/bench/build/jar/ajm.jar:\
+$MINES_JTK_HOME/build/jar/edu_mines_jtk.jar:\
+$MINES_JTK_HOME/jar/gluegen-rt.jar:\
+$MINES_JTK_HOME/jar/jogl-all.jar:\
+$MINES_JTK_HOME/jar/junit.jar:\
+$JYTHON_HOME/jython.jar:\
+.
+
+# Where are the relevant native (non-Java) code libraries?
+export JAVA_LIBRARY_PATH=\
+$MINES_JTK_HOME/lib/macosx/x64
+
+debug=""
+args=`echo $*`
+if [ "$1" = "-d" ]; then
+  debug="-Xdebug -Xrunjdwp:transport=dt_socket,address=8000,server=y,suspend=y"
+  args=`echo $args | awk '{$1="" ; print}'`
+fi
+
+# rlwrap (readline wrapper) provides command-line history and editing 
+# within the jython interpreter. If you are using jython 2.5.0, then
+# you don't need this because readline is built in. If you do not have
+# rlwrap, you can simply comment out the following line.
+# /opt/local/bin/rlwrap \
+
+java $debug -server -d64 -ea -Xmx6700m -Xss32m \
+-Djava.library.path=$JAVA_LIBRARY_PATH \
+-Djava.util.logging.config.file=$HOME/.java_logging_config \
+-Dapple.awt.graphicsUseQuartz=true \
+-Dpython.cachedir.skip=false \
+-Dpython.cachedir=/tmp/cachedir \
+-Dpython.home=$JYTHON_HOME \
+org.python.util.jython $args
